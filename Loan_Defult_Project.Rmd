@@ -1,0 +1,324 @@
+---
+title: "Project Part2"
+author: "You Li"
+date: "7/23/2019"
+output: word_document
+---
+
+## Introduction
+
+Different loan lenders faced a common problem: how to distinguish the loan applicants who are likely to default on their loans. As data scientists, we could analysis the loan status variable, and build regression models to find out the correlation between the variables and the unqualified applicants.
+
+## Part 1
+
+```{r setup}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE, fig.height=4, fig.width=5.5)
+```
+
+```{r include=FALSE}
+## Open the csv file, and read it as data frame "loan"
+library(dplyr)
+library(readr)
+library(ggformula)
+library(mice)
+library("MASS")
+```
+
+```{r}
+## load data
+loan<-read_csv("loans50k.csv")
+head(loan)
+```
+This dataset includes 30 variables for 50,000 loans. 
+
+```{r eval=FALSE, include=FALSE}
+table(loan$status)
+```
+
+Create a response variable based on loan statuses for logistic regression model.
+```{r}
+loan<-
+  loan %>%
+  mutate(response=case_when(loan$status=="Fully Paid" ~ "Great",
+                            loan$status=="Charged Off"| loan$status=="Default" ~ "Bad"))
+  
+newloan<-subset(loan,!is.na(loan$response))
+```
+
+Loan ID doesn't affect loan statuses, so remove loan ID from the predictor variables.
+The response variable has been created based on "status", "status" is not a predictor variable, so it should be removed too."Payment" is a similar predictor variable as "amount", so remove it from predictor variables.
+```{r}
+drops2<-c("loanID","status","payment")
+newloan<-newloan[ , !(names(newloan) %in% drops2)]
+```
+
+Use sapply() function to count the number of each variable that contains ‘NA’. There are many missing values in "employment","bcOpen" and " bcRatio".
+```{r}
+sapply(newloan, function(x) sum(is.na(x)))
+```
+The number of per column is revealed below.
+
+```{r}
+sapply(newloan, function(x) length(unique(x)))
+```
+
+```{r message=FALSE, warning=FALSE}
+## check where the NAs locate
+md.pattern(newloan)
+```
+Use mice package to impute missing numeric values.
+
+```{r include=FALSE}
+impData <- mice(newloan,m=1,maxit=50,meth='pmm')
+impData$imp$Incoming.Examinations
+newloan2<-complete(impData)
+head(impData$imp$bcRatio)
+```
+
+Since employment is a factor variables with many missing values, it's difficult to impute the missing values for employment appropriately. So the employment has to be removed.
+```{r}
+employment<-as.data.frame(table(newloan2$employment))
+table(employment$Freq)
+```
+```{r}
+drops<-c("employment")
+newloan2<-newloan2[ , !(names(newloan2) %in% drops)]
+
+```
+Now there is no missing values in the dataset.
+
+```{r}
+sapply(newloan2, function(x) sum(is.na(x)))
+```
+
+```{r include=FALSE}
+max(boxplot(newloan2$income)$out)
+newloan3<-newloan2[-(which(newloan2$income=="7446395")),]
+```
+
+```{r eval=FALSE, include=FALSE}
+par(mfrow=c(2,4),mar=c(1,1,1,1))
+hist(newloan2$amount)
+hist(newloan2$rate)
+hist(newloan2$debtIncRat)
+hist(newloan2$delinq2yr)
+hist(newloan2$inq6mth)
+hist(newloan2$openAcc)
+hist(newloan2$pubRec)
+hist(newloan2$revolRatio)
+hist(newloan2$totalAcc)
+hist(newloan2$totalBal)
+hist(newloan2$totalRevLim)
+hist(newloan2$accOpen24)
+hist(newloan2$avgBal)
+hist(newloan2$bcOpen)
+hist(newloan2$bcRatio)
+hist(newloan2$totalLim)
+hist(newloan2$totalRevBal)
+hist(newloan2$totalBcLim)
+hist(newloan2$totalIlLim)
+hist(newloan3$income)
+```
+
+```{r include=FALSE}
+newloan3<-
+  newloan3 %>%
+  mutate(income=sqrt(income))%>%
+  mutate(delinq2yr=sqrt(delinq2yr)) %>%
+  mutate(inq6mth=sqrt(inq6mth)) %>%
+  mutate(openAcc=sqrt(openAcc)) %>%
+  mutate(pubRec=sqrt(pubRec)) %>%
+  mutate(totalAcc=sqrt(totalAcc)) %>%
+  mutate(totalBal=sqrt(totalBal)) %>%
+  mutate(totalRevLim=sqrt(totalRevLim)) %>%
+  mutate(accOpen24=sqrt(accOpen24)) %>%
+  mutate(avgBal=sqrt(avgBal)) %>%
+  mutate(bcRatio=sqrt(bcRatio))%>%
+  mutate(totalLim=sqrt(totalLim)) %>%
+  mutate(totalRevBal=sqrt(totalRevBal)) %>%
+  mutate(totalBcLim=sqrt(totalBcLim)) %>%
+  mutate(income=sqrt(income))
+```
+We can see that there are still some variables can't be transformed to an approximately normal distribution, such as "negative records", "bcRatio","debtlncRat". 
+
+```{r}
+par(mfrow=c(2,4),mar=c(1,1,1,1))
+hist(newloan3$delinq2yr)
+hist(newloan3$inq6mth)
+hist(newloan3$openAcc)
+hist(newloan3$pubRec)
+hist(newloan3$totalAcc)
+hist(newloan3$totalBal)
+hist(newloan3$totalRevLim)
+hist(newloan3$accOpen24)
+hist(newloan3$avgBal)
+hist(newloan3$bcRatio)
+hist(newloan3$totalLim)
+hist(newloan3$totalRevBal)
+hist(newloan3$totalBcLim)
+hist(newloan3$totalIlLim)
+hist(newloan3$income)
+```
+
+## Part 2 
+
+
+Use 1 to represent "Great" and 0 to represent "Bad" in response variable.
+
+```{r}
+data<-
+  newloan2 %>%
+  mutate(response=ifelse(response=="Great",1,0))
+```
+
+Seperate the datasets as trained and tested data. 
+```{r}
+set.seed(123)
+train <- sample(1:nrow(data), round(0.8*nrow(data)))
+#length(train)
+data_train<-data[train,]
+data_test<-data[-train,]
+```
+
+totalPaid, cannot be used as a predictor variable because it is information that cannot be known before the loan is issued. so not to include it as a predictor in the models.
+```{r}
+dropstotalpaid<-c("totalPaid")
+data_train<-data_train[ , !(names(data_train) %in% dropstotalpaid)]
+```
+Using the generalized linear model, glm() function, make a logistic regression analysis using ‘response’ feature as outcome, with the rest of features in the training dataset as independent predictors. Specified binomial in the family argument will analyze the data using logistic regression.
+
+full<-glm(response~.,data=data_train,family="binomial" )
+summary(full)
+
+```{r eval=FALSE, include=FALSE}
+full<-glm(response~.,data=data_train,family="binomial" )
+summary(full)
+```
+
+Use the step function with backward selection to find a better model for predicting the response variable .
+null<-glm(response~1, data=data_train,family="binomial" )
+full<-glm(response~.,data=data_train,family="binomial" )
+stepAIC(null,scope=list(lower=null, upper=full),direction = "forward")
+
+```{r eval=FALSE, include=FALSE}
+null<-glm(response~1, data=data_train,family="binomial" )
+full<-glm(response~.,data=data_train,family="binomial" )
+stepAIC(null,scope=list(lower=null, upper=full),direction = "forward")
+
+```
+
+Use the step function with backward selection to find a better model for predicting the response variable
+
+full<-glm(response~.,data=data_train,family="binomial" )
+stepAIC(full,direction = "backward")
+```{r eval=FALSE, include=FALSE}
+full<-glm(response~.,data=data_train,family="binomial" )
+stepAIC(full,direction = "backward")
+```
+
+Compare AIC values of the two models  produced by the backward and forward selection procedure.
+```{r}
+backward<-glm( response ~ grade + term + avgBal + debtIncRat + 
+    accOpen24 + totalAcc + home + state + bcOpen + length + delinq2yr + 
+    amount + inq6mth + revolRatio + totalBcLim + totalIlLim + 
+    totalRevBal + totalRevLim + rate, family = "binomial", data = data_train)
+
+forward<-glm( response ~ amount + term + rate + grade + length + 
+    home + state + debtIncRat + delinq2yr + inq6mth + revolRatio + 
+    totalAcc + totalRevLim + accOpen24 + avgBal + bcRatio + totalRevBal + 
+    totalBcLim + totalIlLim, family = "binomial", data = data_train)
+
+extractAIC(backward)
+extractAIC(forward)
+```
+Forward model has smaller AIC value (26154.54), which means forward model is better. Use 0.5 as the cutoff  probability to construct a classification table (also known as a confusion matrix) for the model.
+The accuracy rate from the table is 0.79.
+
+```{r}
+fit<-glm( response ~ amount + term + rate + grade + length + 
+    home + state + debtIncRat + delinq2yr + inq6mth + revolRatio + 
+    totalAcc + totalRevLim + accOpen24 + avgBal + bcRatio + totalRevBal + 
+    totalBcLim + totalIlLim, family = "binomial", data = data_test)
+pre<-predict(fit,data=data_test,type="response")
+fitted.results<-ifelse(pre>0.5,1,0)
+t<-table(data_test$response,fitted.results)
+addmargins(t)
+
+accuracy_rate<-(209 +5283)/(359 +6572)
+accuracy_rate
+
+```
+Based on the plot Optimizing the Threshold for Accuracy, we can find that when the threhold is 0.5,
+the accuracy rate reach the highest. If the threhould is greater than 0.6, the acuuracy rate decreases.
+
+```{r}
+cutoffs <- seq(0.1,0.9,0.1)
+accuracy <- NULL
+for (i in seq(along = cutoffs)){
+    prediction <- ifelse(fit$fitted.values >= cutoffs[i], 1, 0) #Predicting for cut-off
+accuracy <- c(accuracy,length(which(data_test$response ==prediction))/length(prediction)*100)
+}
+
+plot(cutoffs, accuracy, pch =19,type='b',col= "steelblue",
+     main ="Optimizing the Threshold for Accuracy", xlab="Cutoff Level", ylab = "Accuracy Rate")
+```
+totalPaid is information that only can be known after the loan is issued, so totalPaid can be used an index to define the loan is good or bad. Bamk get profit from the difference that totalPaid minus amout.
+
+```{r}
+data_test2<-
+  data_test %>%
+  mutate(profit=totalPaid-amount)
+```
+
+Create a plot for true positive rate and threshold. Based on the plot, we can find that when the threshold is 0.1, good loans prediction amount reach the highst.
+```{r}
+cutoffs <- seq(0.1,0.9,0.1)
+accuracy_possitive<- NULL
+for (i in seq(along = cutoffs)){
+    prediction <- ifelse(fit$fitted.values >= cutoffs[i], 1, 0) #Predicting for cut-off
+accuracy_possitive <- c(accuracy_possitive,length(which(prediction[which(data_test$response==1)]==1))/length(prediction)*100)
+}
+
+plot(cutoffs, accuracy_possitive, pch =19,type='b',col= "steelblue",
+     main ="Good prediction rate by threshold", xlab="Cutoff Level", ylab = "Good Predicton Rate")
+```
+
+Create a plot for true negative rate,Based on the plot,we can find that when the threshold is 0.9, bdd loans prediction amount reach the highst.
+```{r}
+cutoffs <- seq(0.1,0.9,0.1)
+accuracy_negative<- NULL
+for (i in seq(along = cutoffs)){
+    prediction <- ifelse(fit$fitted.values >= cutoffs[i], 1, 0) #Predicting for cut-off
+accuracy_negative <- c(accuracy_negative,length(which(prediction[which(data_test$response==0)]==0))/length(prediction)*100)
+}
+
+plot(cutoffs, accuracy_negative, pch =19,type='b',col= "steelblue",
+     main ="Bad prediction rate by threshold", xlab="Cutoff Level", ylab = "Bad Predicton Rate")
+
+```
+```{r}
+cutoffs <- seq(0.1,0.9,0.1)
+totalprofit<- NULL
+for (i in seq(along = cutoffs)){
+    prediction <- ifelse(fit$fitted.values >= cutoffs[i], 1, 0) #Predicting for cut-off
+totalprofit <- c(totalprofit,sum(data_test2$profit[which(prediction==1)]))
+}
+
+plot(cutoffs, totalprofit , pch =19,type='b',col= "steelblue",
+     main ="Total Profit by threshold", xlab="Cutoff Level", ylab = "totalprofit ")
+
+```
+```{r}
+fitted.results2<-ifelse(pre>0.7,1,0)
+best<-sum(data_test2$profit[which(fitted.results2==1)])
+best
+```
+Summary:
+
+From the study of the plots, we found that for any given threshold value (0~1), the accuracy of model (true positive+ true negative), the probability of true positive, and the total profit are fixed. The accuracy rate is generally consistent around 77% for threshold value ≤ 0.6. When threshold is greater than 0.6, the model accuracy quickly drops. In contrast, the total profit (from predicted “good” loans) increases with threshold until 0.7, followed by a sharp drop.
+
+Hence, it is concluded that the bank should balance between model accuracy and total profit for decision making. In this case, looks like threshold value equals to 0.6 or 0.7, gives highest possible total profit. A quick check could be using “total profit” times “accuracy”. For threshold=0.6, it is 3545908. While threshold=0.7, it is 4249183. The take home message is to consider model accuracy together with final output result.  
+
+
+
+
